@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: automacao-contratos
+    env: python
+    buildCommand: ""
+    startCommand: start.bat

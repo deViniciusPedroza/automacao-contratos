@@ -1,5 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query
-from services.upload_service import upload_pdf_to_cloudinary, is_valid_folder
+from app.services.upload_service import upload_pdf_to_cloudinary, is_valid_folder
 
 router = APIRouter()
 

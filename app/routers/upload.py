@@ -7,7 +7,7 @@ router = APIRouter()
 async def upload_pdf(
     etapa: str,
     file: UploadFile = File(...),
-    filename: str = Query(default=None, description="Nome do arquivo (sem extensão .pdf)")
+    filename: str = Query(default=None, description="Nome desejado para o arquivo (sem .pdf)")
 ):
     if not is_valid_folder(etapa):
         raise HTTPException(status_code=400, detail="Pasta de etapa inválida.")

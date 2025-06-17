@@ -1,6 +1,7 @@
 import cloudinary.uploader
 from fastapi import UploadFile
 from typing import Optional
+import uuid
 
 VALID_FOLDERS = [
     "raster",
@@ -16,16 +17,18 @@ def is_valid_folder(folder: str) -> bool:
     return folder in VALID_FOLDERS
 
 async def upload_pdf_to_cloudinary(etapa: str, file: UploadFile, filename_override: Optional[str] = None):
-    public_id = None
+    # Gera nome aleatório se não for informado
     if filename_override:
         public_id = f"automacao-contratos/{etapa}/{filename_override}"
+    else:
+        random_name = str(uuid.uuid4())
+        public_id = f"automacao-contratos/{etapa}/{random_name}"
 
     upload_result = cloudinary.uploader.upload(
         file.file,
         resource_type="raw",
-        folder=f"automacao-contratos/{etapa}",
         public_id=public_id,
-        format="pdf",  # Garante a extensão
+        format="pdf",  # Garante que seja PDF
         overwrite=True
     )
 

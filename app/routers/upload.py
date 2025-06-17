@@ -1,21 +1,34 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 import cloudinary.uploader
-from app.config import cloudinary_config  # ativa configuração
+import os
 
 router = APIRouter()
 
-@router.post("/upload-pdf")
-async def upload_pdf(file: UploadFile = File(...)):
-    if file.content_type != "application/pdf":
-        raise HTTPException(status_code=400, detail="Apenas arquivos PDF são permitidos.")
+# Lista de pastas válidas
+VALID_FOLDERS = [
+    "raster",
+    "rntrc",
+    "contratos",
+    "comprovantes",
+    "cte",
+    "agrupamento",
+    "outros"
+]
 
-    result = cloudinary.uploader.upload(
-        file.file,
-        resource_type="raw",  # "raw" para PDFs e arquivos não-imagem
-        folder="documentos"   # opcional: pasta onde armazenar
-    )
+@router.post("/upload/{etapa}")
+async def upload_pdf(etapa: str, file: UploadFile = File(...)):
+    if etapa not in VALID_FOLDERS:
+        raise HTTPException(status_code=400, detail="Pasta de etapa inválida.")
 
-    return {
-        "url": result["secure_url"],
-        "public_id": result["public_id"]
-    }
+    try:
+        result = cloudinary.uploader.upload(
+            file.file,
+            resource_type="raw",
+            folder=f"automacao-contratos/{etapa}"
+        )
+        return {
+            "message": f"Upload para a pasta '{etapa}' realizado com sucesso.",
+            "url": result.get("secure_url")
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao fazer upload: {str(e)}")

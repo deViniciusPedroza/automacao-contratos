@@ -15,6 +15,7 @@ class Processo(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     nome = Column(String, nullable=False)
+    numero_contrato = Column(String, unique=True, nullable=False)
     status = Column(Enum(StatusProcesso), default=StatusProcesso.EM_ANDAMENTO)
     criado_em = Column(DateTime(timezone=True), server_default=func.now())
     atualizado_em = Column(DateTime(timezone=True), onupdate=func.now())

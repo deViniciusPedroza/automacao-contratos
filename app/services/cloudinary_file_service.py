@@ -1,5 +1,7 @@
 import cloudinary
 import cloudinary.api
+from sqlalchemy.orm import Session
+from app.models.arquivo import Arquivo
 
 def list_files_by_folder(folder: str):
     """
@@ -19,12 +21,17 @@ def list_files_by_folder(folder: str):
         for resource in response.get("resources", [])
     ]
 
-def delete_file_by_public_id(public_id: str):
+def delete_file_by_public_id(public_id: str, db: Session):
     """
-    Remove um arquivo do Cloudinary pelo public_id.
+    Remove um arquivo do Cloudinary pelo public_id e remove do banco.
     """
     result = cloudinary.api.delete_resources(
         [public_id],
         resource_type="raw"
     )
+    # Remove do banco se existir
+    arquivo = db.query(Arquivo).filter(Arquivo.public_id == public_id).first()
+    if arquivo:
+        db.delete(arquivo)
+        db.commit()
     return result

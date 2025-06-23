@@ -37,7 +37,8 @@ async def upload_pdf_to_cloudinary(
         resource_type="raw",
         public_id=public_id,
         format="pdf",  # Garante que seja PDF
-        overwrite=True
+        overwrite=True,
+        access_mode="public"  # <-- Torna o arquivo público!
     )
 
     url = upload_result.get("secure_url")

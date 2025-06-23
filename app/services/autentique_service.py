@@ -1,24 +1,23 @@
 import os
 import aiohttp
 import tempfile
+import logging
 from typing import Dict
 from app.schemas.autentique import DocumentoAutentiqueInput, DocumentoAutentiqueOutput, SignerOutput
+
+logging.basicConfig(level=logging.INFO)
 
 AUTENTIQUE_API_URL = "https://api.autentique.com.br/v2/graphql"
 AUTENTIQUE_TOKEN = os.getenv("AUTENTIQUE_TOKEN")
 
 async def baixar_arquivo_cloudinary(url_arquivo: str) -> str:
-    """
-    Baixa o arquivo PDF do Cloudinary a partir da URL completa e salva temporariamente.
-    Retorna o caminho do arquivo temporário.
-    """
     async with aiohttp.ClientSession() as session:
         async with session.get(url_arquivo) as resp:
             if resp.status != 200:
                 raise Exception(f"Erro ao baixar arquivo do Cloudinary: {resp.status}")
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                 tmp.write(await resp.read())
-                return tmp.name
+                return tmp.name  # <-- Isso deve ser uma string
 
 async def enviar_mutation_autentique(query: str, variables: Dict, files: Dict = None):
     headers = {
@@ -35,6 +34,8 @@ async def enviar_mutation_autentique(query: str, variables: Dict, files: Dict = 
         map_dict = {str(i): f"variables.{k}" for i, k in enumerate(files.keys())}
         form_data.add_field("map", str(map_dict).replace("'", '"'))
         for i, (k, v) in enumerate(files.items()):
+            if not isinstance(v, str):
+                raise Exception(f"Esperado caminho do arquivo como string, recebido: {type(v)}")
             form_data.add_field(str(i), open(v, "rb"), filename=os.path.basename(v), content_type="application/pdf")
         async with aiohttp.ClientSession() as session:
             async with session.post(AUTENTIQUE_API_URL, data=form_data, headers=headers) as resp:
@@ -47,6 +48,7 @@ async def enviar_mutation_autentique(query: str, variables: Dict, files: Dict = 
 async def processar_documento_autentique(payload: DocumentoAutentiqueInput) -> DocumentoAutentiqueOutput:
     # 1. Baixar arquivo do Cloudinary usando a URL completa
     arquivo_local = await baixar_arquivo_cloudinary(payload.arquivo_cloudinary)
+    logging.info("Arquivo baixado em:", arquivo_local, type(arquivo_local))
 
     # 2. Montar mutation de criação de documento
     create_document_mutation = """

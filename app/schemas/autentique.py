@@ -14,7 +14,7 @@ class SignerInput(BaseModel):
 
 class DocumentoAutentiqueInput(BaseModel):
     nome_documento: str = Field(..., description="Nome do documento a ser criado no Autentique")
-    arquivo_cloudinary: HttpUrl = Field(..., description="URL completa do arquivo PDF no Cloudinary")
+    arquivo_cloudinary: str = Field(..., description="URL completa do arquivo PDF no Cloudinary")
     cc_email: str = Field(..., description="E-mail para cópia (CC)")
     signers: List[SignerInput] = Field(..., description="Lista de signatários do documento")
 

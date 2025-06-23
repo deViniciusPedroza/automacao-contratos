@@ -22,7 +22,7 @@ async def baixar_arquivo_cloudinary(url_arquivo: str) -> str:
                 content = await resp.read()
                 tmp.write(content)
                 logging.info(f"Arquivo baixado e salvo temporariamente em: {tmp.name} (tamanho: {len(content)} bytes)")
-                return tmp.name  # <-- Isso deve ser uma string
+                return tmp.name
 
 async def enviar_mutation_autentique(query: str, variables: Dict, files: Dict = None):
     headers = {
@@ -35,7 +35,6 @@ async def enviar_mutation_autentique(query: str, variables: Dict, files: Dict = 
     if files:
         form_data = aiohttp.FormData()
         form_data.add_field("operations", json.dumps(data))
-        # CORREÇÃO AQUI: valor deve ser uma lista!
         map_dict = {str(i): [f"variables.{k}"] for i, k in enumerate(files.keys())}
         form_data.add_field("map", json.dumps(map_dict))
         for i, (k, v) in enumerate(files.items()):
@@ -123,26 +122,37 @@ async def processar_documento_autentique(payload: DocumentoAutentiqueInput) -> D
     signatures = doc_data["signatures"]
 
     signer_outputs = []
+    # Filtra apenas signers válidos (com nome preenchido)
     for sig in signatures:
         public_id = sig["public_id"]
-        create_link_mutation = f"""
-        mutation{{
-          createLinkToSignature(public_id: "{public_id}"){{
-            short_link
-          }}
-        }}
-        """
-        try:
-            link_resp = await enviar_mutation_autentique(create_link_mutation, {})
-            logging.info(f"Resposta da mutation createLinkToSignature para {public_id}: {link_resp}")
-            short_link = link_resp["data"]["createLinkToSignature"]["short_link"]
-        except Exception as e:
-            logging.error(f"Erro ao gerar link de assinatura para {public_id}: {e}")
-            short_link = None
+        name = sig.get("name")
+        email = sig.get("email")
+        # Só gera link para quem tem nome preenchido (não é o dono da conta/autentique)
+        if name and name.strip():
+            create_link_mutation = f"""
+            mutation{{
+              createLinkToSignature(public_id: "{public_id}"){{
+                short_link
+              }}
+            }}
+            """
+            try:
+                link_resp = await enviar_mutation_autentique(create_link_mutation, {})
+                logging.info(f"Resposta da mutation createLinkToSignature para {public_id}: {link_resp}")
+                short_link = None
+                if link_resp and "data" in link_resp and link_resp["data"].get("createLinkToSignature"):
+                    short_link = link_resp["data"]["createLinkToSignature"].get("short_link")
+                else:
+                    logging.warning(f"Não foi possível gerar link de assinatura para {public_id}: {link_resp.get('errors') if link_resp else 'Resposta vazia'}")
+            except Exception as e:
+                logging.error(f"Erro ao gerar link de assinatura para {public_id}: {e}")
+                short_link = None
+        else:
+            short_link = None  # Não gera link para o dono da conta/autentique ou CC
         signer_outputs.append(SignerOutput(
             public_id=public_id,
-            name=sig["name"],
-            email=sig["email"],
+            name=name,
+            email=email,
             link_assinatura=short_link
         ))
 

@@ -34,9 +34,9 @@ async def enviar_mutation_autentique(query: str, variables: Dict, files: Dict = 
     }
     if files:
         form_data = aiohttp.FormData()
-        # Correção: use json.dumps para garantir JSON válido
         form_data.add_field("operations", json.dumps(data))
-        map_dict = {str(i): f"variables.{k}" for i, k in enumerate(files.keys())}
+        # CORREÇÃO AQUI: valor deve ser uma lista!
+        map_dict = {str(i): [f"variables.{k}"] for i, k in enumerate(files.keys())}
         form_data.add_field("map", json.dumps(map_dict))
         for i, (k, v) in enumerate(files.items()):
             if not isinstance(v, str):

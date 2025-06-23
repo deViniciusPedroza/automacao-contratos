@@ -3,7 +3,13 @@ import aiohttp
 import tempfile
 import logging
 import json
+import datetime
 from typing import Dict
+from app.schemas.autentique import DocumentoAutentiqueInput, DocumentoAutentiqueOutput, SignerOutput
+from sqlalchemy.orm import Session
+from app.models.processo import Processo, StatusProcesso
+from app.models.documento_assinatura import DocumentoAssinatura
+from app.models.assinatura_signatario import AssinaturaSignatario
 from app.schemas.autentique import DocumentoAutentiqueInput, DocumentoAutentiqueOutput, SignerOutput
 
 logging.basicConfig(level=logging.INFO)
@@ -55,14 +61,12 @@ async def enviar_mutation_autentique(query: str, variables: Dict, files: Dict = 
                 logging.info(f"Resposta da mutation (json): {resp_json}")
                 return resp_json
 
-async def processar_documento_autentique(payload: DocumentoAutentiqueInput) -> DocumentoAutentiqueOutput:
-    try:
-        arquivo_local = await baixar_arquivo_cloudinary(payload.arquivo_cloudinary)
-        logging.info(f"Arquivo baixado em: {arquivo_local} ({type(arquivo_local)})")
-    except Exception as e:
-        logging.error(f"Erro ao baixar arquivo do Cloudinary: {e}")
-        raise
+async def processar_documento_autentique_e_salvar(payload: DocumentoAutentiqueInput, db: Session) -> DocumentoAutentiqueOutput:
+    # 1. Baixar o arquivo do Cloudinary
+    arquivo_local = await baixar_arquivo_cloudinary(payload.arquivo_cloudinary)
+    logging.info(f"Arquivo baixado em: {arquivo_local}")
 
+    # 2. Montar a mutation e enviar para o Autentique
     create_document_mutation = """
     mutation CreateDocumentMutation($document: DocumentInput!, $signers: [SignerInput!]!, $file: Upload!) {
       createDocument(
@@ -101,16 +105,12 @@ async def processar_documento_autentique(payload: DocumentoAutentiqueInput) -> D
                 "positions": [p.dict() for p in s.positions]
             } for s in payload.signers
         ],
-        "file": None  # Placeholder para upload
+        "file": None
     }
     files = {"file": arquivo_local}
 
-    try:
-        resp = await enviar_mutation_autentique(create_document_mutation, document_vars, files)
-        logging.info(f"Resposta da mutation createDocument: {resp}")
-    except Exception as e:
-        logging.error(f"Erro ao enviar mutation createDocument: {e}")
-        raise
+    resp = await enviar_mutation_autentique(create_document_mutation, document_vars, files)
+    logging.info(f"Resposta da mutation createDocument: {resp}")
 
     if not resp or "data" not in resp or not resp["data"].get("createDocument"):
         logging.error(f"Resposta inesperada da API do Autentique: {resp}")
@@ -121,13 +121,32 @@ async def processar_documento_autentique(payload: DocumentoAutentiqueInput) -> D
     nome = doc_data["name"]
     signatures = doc_data["signatures"]
 
+    # 3. Buscar o processo pelo numero_contrato (que é o nome do arquivo)
+    # Extrai o número do contrato do nome do arquivo (ex: "56765.pdf" -> "56765")
+    nome_arquivo = os.path.basename(payload.arquivo_cloudinary)
+    numero_contrato = os.path.splitext(nome_arquivo)[0]
+
+    processo = db.query(Processo).filter(Processo.numero_contrato == numero_contrato).first()
+    if not processo:
+        raise Exception(f"Processo não encontrado para o número de contrato: {numero_contrato}")
+
+    # 4. Persistir DocumentoAssinatura
+    documento_assinatura = DocumentoAssinatura(
+        processo_id=processo.id,
+        documento_id_autentique=document_id,
+        nome_documento=nome,
+        status="aguardando_assinatura",
+        data_upload=datetime.datetime.utcnow()
+    )
+    db.add(documento_assinatura)
+    db.flush()  # Para obter o ID do documento_assinatura
+
     signer_outputs = []
-    # Filtra apenas signers válidos (com nome preenchido)
     for sig in signatures:
         public_id = sig["public_id"]
         name = sig.get("name")
         email = sig.get("email")
-        # Só gera link para quem tem nome preenchido (não é o dono da conta/autentique)
+        # Só gera link para quem tem nome preenchido
         if name and name.strip():
             create_link_mutation = f"""
             mutation{{
@@ -136,25 +155,40 @@ async def processar_documento_autentique(payload: DocumentoAutentiqueInput) -> D
               }}
             }}
             """
-            try:
-                link_resp = await enviar_mutation_autentique(create_link_mutation, {})
-                logging.info(f"Resposta da mutation createLinkToSignature para {public_id}: {link_resp}")
-                short_link = None
-                if link_resp and "data" in link_resp and link_resp["data"].get("createLinkToSignature"):
-                    short_link = link_resp["data"]["createLinkToSignature"].get("short_link")
-                else:
-                    logging.warning(f"Não foi possível gerar link de assinatura para {public_id}: {link_resp.get('errors') if link_resp else 'Resposta vazia'}")
-            except Exception as e:
-                logging.error(f"Erro ao gerar link de assinatura para {public_id}: {e}")
-                short_link = None
+            link_resp = await enviar_mutation_autentique(create_link_mutation, {})
+            logging.info(f"Resposta da mutation createLinkToSignature para {public_id}: {link_resp}")
+            short_link = None
+            if link_resp and "data" in link_resp and link_resp["data"].get("createLinkToSignature"):
+                short_link = link_resp["data"]["createLinkToSignature"].get("short_link")
+            else:
+                logging.warning(f"Não foi possível gerar link de assinatura para {public_id}: {link_resp.get('errors') if link_resp else 'Resposta vazia'}")
         else:
-            short_link = None  # Não gera link para o dono da conta/autentique ou CC
+            short_link = None
+
+        # 5. Persistir AssinaturaSignatario
+        assinatura = AssinaturaSignatario(
+            documento_assinatura_id=documento_assinatura.id,
+            nome=name,
+            email=email,
+            telefone=None,  # Preencha se tiver no payload
+            email_secundario=None,  # Preencha se tiver no payload
+            link_assinatura=short_link,
+            tipo_acesso="email",  # Ou outro tipo se disponível
+            status_assinatura="aguardando",
+            data_assinatura=None
+        )
+        db.add(assinatura)
+
         signer_outputs.append(SignerOutput(
             public_id=public_id,
             name=name,
             email=email,
             link_assinatura=short_link
         ))
+
+    # 6. Atualizar status do processo
+    processo.status = StatusProcesso.AGUARDANDO_ASSINATURA_CONTRATO
+    db.commit()
 
     return DocumentoAutentiqueOutput(
         document_id=document_id,

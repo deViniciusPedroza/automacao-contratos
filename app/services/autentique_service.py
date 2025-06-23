@@ -2,6 +2,7 @@ import os
 import aiohttp
 import tempfile
 import logging
+import json
 from typing import Dict
 from app.schemas.autentique import DocumentoAutentiqueInput, DocumentoAutentiqueOutput, SignerOutput
 
@@ -33,9 +34,10 @@ async def enviar_mutation_autentique(query: str, variables: Dict, files: Dict = 
     }
     if files:
         form_data = aiohttp.FormData()
-        form_data.add_field("operations", str(data).replace("'", '"'))
+        # Correção: use json.dumps para garantir JSON válido
+        form_data.add_field("operations", json.dumps(data))
         map_dict = {str(i): f"variables.{k}" for i, k in enumerate(files.keys())}
-        form_data.add_field("map", str(map_dict).replace("'", '"'))
+        form_data.add_field("map", json.dumps(map_dict))
         for i, (k, v) in enumerate(files.items()):
             if not isinstance(v, str):
                 logging.error(f"Esperado caminho do arquivo como string, recebido: {type(v)}")

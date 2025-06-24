@@ -6,6 +6,7 @@ from app.routers import cloudinary_file_router
 from app.routers import processo
 from app.routers import autentique
 from app.routers import sincronizacao
+from app.routers import webhook
 # importação dos modelos
 from app.models.processo import Processo
 from app.models.arquivo import Arquivo
@@ -19,6 +20,7 @@ app.include_router(cloudinary_file_router.router)
 app.include_router(processo.router)
 app.include_router(autentique.router)
 app.include_router(sincronizacao.router)
+app.include_router(webhook.router)
 
 # Criar tabelas (somente para fase inicial, depois migrar para Alembic)
 Base.metadata.create_all(bind=engine)

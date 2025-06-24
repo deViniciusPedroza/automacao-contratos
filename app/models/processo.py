@@ -5,15 +5,15 @@ from app.database import Base
 import enum
 
 class StatusProcesso(enum.Enum):
-    AGUARDANDO_RASTER_MOTORISTA = "aguardando_raster_motorista"
-    AGUARDANDO_RASTER_CAMINHAO = "aguardando_raster_caminhao"
-    AGUARDANDO_ASSINATURA_CONTRATO = "aguardando_assinatura_contrato"
-    AGUARDANDO_CTE = "aguardando_cte"
-    AGUARDANDO_MANIFESTO = "aguardando_manifesto"
-    AGUARDANDO_RNTRC = "aguardando_rntrc"
-    AGUARDANDO_COMPROVANTE = "aguardando_comprovante"
-    FINALIZADO = "finalizado"
-    REJEITADO = "rejeitado"
+    AGUARDANDO_RASTER_MOTORISTA = "AGUARDANDO_RASTER_MOTORISTA"
+    AGUARDANDO_RASTER_CAMINHAO = "AGUARDANDO_RASTER_CAMINHAO"
+    AGUARDANDO_ASSINATURA_CONTRATO = "AGUARDANDO_ASSINATURA_CONTRATO"
+    AGUARDANDO_CTE = "AGUARDANDO_CTE"
+    AGUARDANDO_MANIFESTO = "AGUARDANDO_MANIFESTO"
+    AGUARDANDO_RNTRC = "AGUARDANDO_RNTRC"
+    AGUARDANDO_COMPROVANTE = "AGUARDANDO_COMPROVANTE"
+    FINALIZADO = "FINALIZADO"
+    REJEITADO = "REJEITADO"
 
 class Processo(Base):
     __tablename__ = "processos"

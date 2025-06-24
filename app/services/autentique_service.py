@@ -61,7 +61,7 @@ async def enviar_mutation_autentique(query: str, variables: Dict, files: Dict = 
                 logging.info(f"Resposta da mutation (json): {resp_json}")
                 return resp_json
 
-async def processar_documento_autentique_e_salvar(payload: DocumentoAutentiqueInput, db: Session) -> DocumentoAutentiqueOutput:
+async def processar_documento_autentique(payload: DocumentoAutentiqueInput, db: Session) -> DocumentoAutentiqueOutput:
     # 1. Baixar o arquivo do Cloudinary
     arquivo_local = await baixar_arquivo_cloudinary(payload.arquivo_cloudinary)
     logging.info(f"Arquivo baixado em: {arquivo_local}")

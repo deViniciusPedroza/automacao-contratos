@@ -8,6 +8,8 @@ from app.routers import autentique
 # importação dos modelos
 from app.models.processo import Processo
 from app.models.arquivo import Arquivo
+from app.models.assinatura_signatario import AssinaturaSignatario
+from app.models.documento_assinatura import DocumentoAssinatura
 
 app = FastAPI()
 

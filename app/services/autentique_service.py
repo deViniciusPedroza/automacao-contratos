@@ -7,10 +7,9 @@ import datetime
 from typing import Dict
 from app.schemas.autentique import DocumentoAutentiqueInput, DocumentoAutentiqueOutput, SignerOutput
 from sqlalchemy.orm import Session
-from app.models.processo import Processo, StatusProcesso
+from app.models.processo import Processo
 from app.models.documento_assinatura import DocumentoAssinatura
 from app.models.assinatura_signatario import AssinaturaSignatario
-from app.schemas.autentique import DocumentoAutentiqueInput, DocumentoAutentiqueOutput, SignerOutput
 
 logging.basicConfig(level=logging.INFO)
 
@@ -122,7 +121,6 @@ async def processar_documento_autentique(payload: DocumentoAutentiqueInput, db: 
     signatures = doc_data["signatures"]
 
     # 3. Buscar o processo pelo numero_contrato (que é o nome do arquivo)
-    # Extrai o número do contrato do nome do arquivo (ex: "56765.pdf" -> "56765")
     nome_arquivo = os.path.basename(payload.arquivo_cloudinary)
     numero_contrato = os.path.splitext(nome_arquivo)[0]
 
@@ -135,7 +133,7 @@ async def processar_documento_autentique(payload: DocumentoAutentiqueInput, db: 
         processo_id=processo.id,
         documento_id_autentique=document_id,
         nome_documento=nome,
-        status="aguardando_assinatura",
+        status="aguardando_assinatura",  # pode ser string, pois não é Enum no banco
         data_upload=datetime.datetime.utcnow()
     )
     db.add(documento_assinatura)
@@ -186,8 +184,8 @@ async def processar_documento_autentique(payload: DocumentoAutentiqueInput, db: 
             link_assinatura=short_link
         ))
 
-    # 6. Atualizar status do processo
-    processo.status = StatusProcesso.AGUARDANDO_ASSINATURA_CONTRATO
+    # 6. Atualizar status do processo para o valor MAIÚSCULO do Enum do banco
+    processo.status = "AGUARDANDO_ASSINATURA_CONTRATO"
     db.commit()
 
     return DocumentoAutentiqueOutput(

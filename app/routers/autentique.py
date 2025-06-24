@@ -1,14 +1,19 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
+from sqlalchemy.orm import Session
 from app.schemas.autentique import DocumentoAutentiqueInput, DocumentoAutentiqueOutput
 from app.services.autentique_service import processar_documento_autentique
+from app.database import get_db
 
 router = APIRouter(prefix="/autentique", tags=["Autentique"])
 
 @router.post("/documento/", response_model=DocumentoAutentiqueOutput)
-async def criar_documento_autentique(payload: DocumentoAutentiqueInput):
+async def criar_documento_autentique(
+    payload: DocumentoAutentiqueInput,
+    db: Session = Depends(get_db)
+):
     """
     Cria um documento no Autentique, envia para assinatura e retorna os links de assinatura.
-    
+
     Exemplo de payload:
     {
       "nome_documento": "Contrato de transporte - 56765",
@@ -27,7 +32,7 @@ async def criar_documento_autentique(payload: DocumentoAutentiqueInput):
     }
     """
     try:
-        resultado = await processar_documento_autentique(payload)
+        resultado = await processar_documento_autentique(payload, db)
         return resultado
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))

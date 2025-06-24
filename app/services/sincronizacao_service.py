@@ -7,7 +7,6 @@ from app.models.arquivo import Arquivo
 
 AUTENTIQUE_API_URL = "https://api.autentique.com.br/v2/graphql"
 AUTENTIQUE_TOKEN = os.getenv("AUTENTIQUE_TOKEN")
-CLOUDINARY_API_URL = "https://api.cloudinary.com/v1_1/{cloud_name}/resources/raw"
 CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
 CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
 CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
@@ -27,12 +26,15 @@ async def documento_existe_autentique(document_id: str) -> bool:
             return bool(data.get("data", {}).get("document"))
 
 async def arquivo_existe_cloudinary(public_id: str) -> bool:
-    # Cloudinary API para buscar arquivo pelo public_id
-    url = f"https://api.cloudinary.com/v1_1/{CLOUDINARY_CLOUD_NAME}/resources/raw/upload/{public_id}"
+    url = f"https://api.cloudinary.com/v1_1/{CLOUDINARY_CLOUD_NAME}/resources/raw/upload"
+    params = {"public_ids[]": public_id}
     auth = aiohttp.BasicAuth(CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET)
     async with aiohttp.ClientSession(auth=auth) as session:
-        async with session.get(url) as resp:
-            return resp.status == 200
+        async with session.get(url, params=params) as resp:
+            if resp.status != 200:
+                return False
+            data = await resp.json()
+            return bool(data.get("resources"))
 
 async def sincronizar_documentos(db: Session):
     removidos_autentique = []

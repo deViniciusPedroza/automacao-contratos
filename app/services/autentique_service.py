@@ -179,7 +179,7 @@ async def processar_documento_autentique(payload: DocumentoAutentiqueInput, db: 
 
         signer_outputs.append(SignerOutput(
             public_id=public_id,
-            name=name,
+            name=name or "",
             email=email,
             link_assinatura=short_link
         ))

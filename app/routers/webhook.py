@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import aiohttp
+import asyncio
 from fastapi import APIRouter, Request, Header, HTTPException, status, Depends, UploadFile
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -159,16 +160,24 @@ async def autentique_webhook(
                     db.commit()
                     logging.info(f"Processo {processo.id} atualizado para status 'AGUARDANDO_CTE'.")
 
-            # --- NOVA LÓGICA: Buscar PDF assinado e fazer upload para Cloudinary ---
+            # --- NOVA LÓGICA: Buscar PDF assinado e fazer upload para Cloudinary com retry ---
             try:
                 if not AUTENTIQUE_TOKEN:
                     logging.error("AUTENTIQUE_TOKEN não está definida nas variáveis de ambiente.")
                     raise Exception("AUTENTIQUE_TOKEN não configurado.")
 
-                # Busca o documento no Autentique pelo ID
-                doc_autentique = await buscar_documento_autentique_por_id(doc.documento_id_autentique, AUTENTIQUE_TOKEN)
-                if doc_autentique and doc_autentique.get("files") and doc_autentique["files"].get("signed"):
-                    signed_url = doc_autentique["files"]["signed"]
+                # Retry para buscar o arquivo assinado
+                signed_url = None
+                doc_autentique = None
+                for tentativa in range(3):
+                    doc_autentique = await buscar_documento_autentique_por_id(doc.documento_id_autentique, AUTENTIQUE_TOKEN)
+                    if doc_autentique and doc_autentique.get("files") and doc_autentique["files"].get("signed"):
+                        signed_url = doc_autentique["files"]["signed"]
+                        break
+                    logging.info(f"Tentativa {tentativa+1}: Arquivo assinado ainda não disponível. Aguardando 3 segundos...")
+                    await asyncio.sleep(3)
+
+                if signed_url:
                     pdf_bytes = await baixar_pdf_assinado(signed_url, AUTENTIQUE_TOKEN)
                     filename = f"{doc_autentique['name']}.pdf"
                     upload_file = criar_uploadfile_from_bytes(pdf_bytes, filename)
@@ -182,7 +191,7 @@ async def autentique_webhook(
                     )
                     logging.info(f"Upload do PDF assinado para Cloudinary realizado com sucesso: {upload_result.get('url')}")
                 else:
-                    logging.warning("Arquivo assinado não encontrado no Autentique para upload.")
+                    logging.warning("Arquivo assinado não encontrado no Autentique para upload após múltiplas tentativas.")
             except Exception as e:
                 logging.exception(f"Erro ao buscar/upload PDF assinado do Autentique: {str(e)}")
                 # Não impede o retorno OK do webhook, mas loga para análise

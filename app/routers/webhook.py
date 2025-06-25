@@ -64,7 +64,10 @@ async def baixar_pdf_assinado(url: str, token: str) -> bytes:
             return await resp.read()
 
 def criar_uploadfile_from_bytes(pdf_bytes: bytes, filename: str) -> UploadFile:
-    return UploadFile(filename=filename, file=BytesIO(pdf_bytes), content_type="application/pdf")
+    upload_file = UploadFile(filename=filename, file=BytesIO(pdf_bytes))
+    # Se seu upload_pdf_to_cloudinary precisar do content_type, descomente a linha abaixo:
+    # upload_file.content_type = "application/pdf"
+    return upload_file
 
 @router.post("/autentique", status_code=status.HTTP_200_OK)
 async def autentique_webhook(

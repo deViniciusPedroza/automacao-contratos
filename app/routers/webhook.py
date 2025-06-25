@@ -3,16 +3,22 @@ import hmac
 import hashlib
 import json
 import logging
-from fastapi import APIRouter, Request, Header, HTTPException, status, Depends
+import aiohttp
+from fastapi import APIRouter, Request, Header, HTTPException, status, Depends, UploadFile
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.documento_assinatura import DocumentoAssinatura
 from app.models.assinatura_signatario import AssinaturaSignatario
 from app.models.processo import Processo
+from app.services.upload_service import upload_pdf_to_cloudinary, is_valid_folder
+from io import BytesIO
 
 router = APIRouter(prefix="/webhook", tags=["Webhook"])
 
 AUTENTIQUE_ENDPOINT_SECRET = os.getenv("AUTENTIQUE_ENDPOINT_SECRET")
+AUTENTIQUE_TOKEN = os.getenv("AUTENTIQUE_TOKEN")
+AUTENTIQUE_API_URL = "https://api.autentique.com.br/v2/graphql"
+AUTENTIQUE_FOLDER_ID = "ab6e826533f286d605477efead23ea44252a08f3"
 
 def verificar_assinatura_hmac(raw_body: bytes, signature: str, secret: str) -> bool:
     """
@@ -26,6 +32,57 @@ def verificar_assinatura_hmac(raw_body: bytes, signature: str, secret: str) -> b
         hashlib.sha256
     ).hexdigest()
     return hmac.compare_digest(calculated_signature, signature)
+
+async def buscar_documento_autentique(document_id: str, token: str):
+    """
+    Busca o documento no Autentique pelo ID, retornando os dados (incluindo a URL do PDF assinado).
+    """
+    query = """
+    query ($folder_id: ID!, $limit: Int, $page: Int) {
+      documentsByFolder(folder_id: $folder_id, limit: $limit, page: $page) {
+        data {
+          id
+          name
+          files { original signed }
+        }
+      }
+    }
+    """
+    variables = {
+        "folder_id": AUTENTIQUE_FOLDER_ID,
+        "limit": 60,
+        "page": 1
+    }
+    headers = {"Authorization": f"Bearer {token}"}
+    async with aiohttp.ClientSession() as session:
+        resp = await session.post(
+            AUTENTIQUE_API_URL,
+            json={"query": query, "variables": variables},
+            headers=headers
+        )
+        data = await resp.json()
+        if "data" in data and "documentsByFolder" in data["data"]:
+            for doc in data["data"]["documentsByFolder"]["data"]:
+                if doc["id"] == document_id:
+                    return doc
+    return None
+
+async def baixar_pdf_assinado(url: str, token: str) -> bytes:
+    """
+    Baixa o PDF assinado do Autentique usando autenticação via token.
+    """
+    headers = {"Authorization": f"Bearer {token}"}
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers) as resp:
+            if resp.status != 200:
+                raise Exception(f"Erro ao baixar PDF assinado: {resp.status}")
+            return await resp.read()
+
+def criar_uploadfile_from_bytes(pdf_bytes: bytes, filename: str) -> UploadFile:
+    """
+    Cria um objeto UploadFile a partir de bytes, para uso no service de upload.
+    """
+    return UploadFile(filename=filename, file=BytesIO(pdf_bytes), content_type="application/pdf")
 
 @router.post("/autentique", status_code=status.HTTP_200_OK)
 async def autentique_webhook(
@@ -107,6 +164,34 @@ async def autentique_webhook(
                     processo.status = "AGUARDANDO_CTE"
                     db.commit()
                     logging.info(f"Processo {processo.id} atualizado para status 'AGUARDANDO_CTE'.")
+
+            # --- NOVA LÓGICA: Buscar PDF assinado e fazer upload para Cloudinary ---
+            try:
+                if not AUTENTIQUE_TOKEN:
+                    logging.error("AUTENTIQUE_TOKEN não está definida nas variáveis de ambiente.")
+                    raise Exception("AUTENTIQUE_TOKEN não configurado.")
+
+                # Busca o documento no Autentique
+                doc_autentique = await buscar_documento_autentique(doc.documento_id_autentique, AUTENTIQUE_TOKEN)
+                if doc_autentique and doc_autentique.get("files") and doc_autentique["files"].get("signed"):
+                    signed_url = doc_autentique["files"]["signed"]
+                    pdf_bytes = await baixar_pdf_assinado(signed_url, AUTENTIQUE_TOKEN)
+                    filename = f"{doc_autentique['name']}.pdf"
+                    upload_file = criar_uploadfile_from_bytes(pdf_bytes, filename)
+                    # Upload para Cloudinary na etapa 'contratos'
+                    upload_result = await upload_pdf_to_cloudinary(
+                        etapa="contratos",
+                        file=upload_file,
+                        processo_id=doc.processo_id,
+                        db=db,
+                        filename_override=doc_autentique["name"]
+                    )
+                    logging.info(f"Upload do PDF assinado para Cloudinary realizado com sucesso: {upload_result.get('url')}")
+                else:
+                    logging.warning("Arquivo assinado não encontrado no Autentique para upload.")
+            except Exception as e:
+                logging.exception(f"Erro ao buscar/upload PDF assinado do Autentique: {str(e)}")
+                # Não impede o retorno OK do webhook, mas loga para análise
 
         return {"ok": True}
     except Exception as e:

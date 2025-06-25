@@ -18,7 +18,6 @@ router = APIRouter(prefix="/webhook", tags=["Webhook"])
 AUTENTIQUE_ENDPOINT_SECRET = os.getenv("AUTENTIQUE_ENDPOINT_SECRET")
 AUTENTIQUE_TOKEN = os.getenv("AUTENTIQUE_TOKEN")
 AUTENTIQUE_API_URL = "https://api.autentique.com.br/v2/graphql"
-AUTENTIQUE_FOLDER_ID = "ab6e826533f286d605477efead23ea44252a08f3"
 
 def verificar_assinatura_hmac(raw_body: bytes, signature: str, secret: str) -> bool:
     """
@@ -33,26 +32,23 @@ def verificar_assinatura_hmac(raw_body: bytes, signature: str, secret: str) -> b
     ).hexdigest()
     return hmac.compare_digest(calculated_signature, signature)
 
-async def buscar_documento_autentique(document_id: str, token: str):
+async def buscar_documento_autentique_por_id(document_id: str, token: str):
     """
     Busca o documento no Autentique pelo ID, retornando os dados (incluindo a URL do PDF assinado).
     """
     query = """
-    query ($folder_id: ID!, $limit: Int, $page: Int) {
-      documentsByFolder(folder_id: $folder_id, limit: $limit, page: $page) {
-        data {
-          id
-          name
-          files { original signed }
+    query ($id: ID!) {
+      document(id: $id) {
+        id
+        name
+        files {
+          original
+          signed
         }
       }
     }
     """
-    variables = {
-        "folder_id": AUTENTIQUE_FOLDER_ID,
-        "limit": 60,
-        "page": 1
-    }
+    variables = {"id": document_id}
     headers = {"Authorization": f"Bearer {token}"}
     async with aiohttp.ClientSession() as session:
         resp = await session.post(
@@ -61,10 +57,8 @@ async def buscar_documento_autentique(document_id: str, token: str):
             headers=headers
         )
         data = await resp.json()
-        if "data" in data and "documentsByFolder" in data["data"]:
-            for doc in data["data"]["documentsByFolder"]["data"]:
-                if doc["id"] == document_id:
-                    return doc
+        if "data" in data and "document" in data["data"]:
+            return data["data"]["document"]
     return None
 
 async def baixar_pdf_assinado(url: str, token: str) -> bytes:
@@ -171,8 +165,8 @@ async def autentique_webhook(
                     logging.error("AUTENTIQUE_TOKEN não está definida nas variáveis de ambiente.")
                     raise Exception("AUTENTIQUE_TOKEN não configurado.")
 
-                # Busca o documento no Autentique
-                doc_autentique = await buscar_documento_autentique(doc.documento_id_autentique, AUTENTIQUE_TOKEN)
+                # Busca o documento no Autentique pelo ID
+                doc_autentique = await buscar_documento_autentique_por_id(doc.documento_id_autentique, AUTENTIQUE_TOKEN)
                 if doc_autentique and doc_autentique.get("files") and doc_autentique["files"].get("signed"):
                     signed_url = doc_autentique["files"]["signed"]
                     pdf_bytes = await baixar_pdf_assinado(signed_url, AUTENTIQUE_TOKEN)

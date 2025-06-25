@@ -21,9 +21,6 @@ AUTENTIQUE_TOKEN = os.getenv("AUTENTIQUE_TOKEN")
 AUTENTIQUE_API_URL = "https://api.autentique.com.br/v2/graphql"
 
 def verificar_assinatura_hmac(raw_body: bytes, signature: str, secret: str) -> bool:
-    """
-    Valida a assinatura HMAC SHA256 do Autentique.
-    """
     if not signature:
         return False
     calculated_signature = hmac.new(
@@ -34,9 +31,6 @@ def verificar_assinatura_hmac(raw_body: bytes, signature: str, secret: str) -> b
     return hmac.compare_digest(calculated_signature, signature)
 
 async def buscar_documento_autentique_por_id(document_id: str, token: str):
-    """
-    Busca o documento no Autentique pelo ID, retornando os dados (incluindo a URL do PDF assinado).
-    """
     query = """
     query ($id: ID!) {
       document(id: $id) {
@@ -57,15 +51,11 @@ async def buscar_documento_autentique_por_id(document_id: str, token: str):
             json={"query": query, "variables": variables},
             headers=headers
         )
+        status_code = resp.status
         data = await resp.json()
-        if "data" in data and "document" in data["data"]:
-            return data["data"]["document"]
-    return None
+        return data, status_code
 
 async def baixar_pdf_assinado(url: str, token: str) -> bytes:
-    """
-    Baixa o PDF assinado do Autentique usando autenticação via token.
-    """
     headers = {"Authorization": f"Bearer {token}"}
     async with aiohttp.ClientSession() as session:
         async with session.get(url, headers=headers) as resp:
@@ -74,9 +64,6 @@ async def baixar_pdf_assinado(url: str, token: str) -> bytes:
             return await resp.read()
 
 def criar_uploadfile_from_bytes(pdf_bytes: bytes, filename: str) -> UploadFile:
-    """
-    Cria um objeto UploadFile a partir de bytes, para uso no service de upload.
-    """
     return UploadFile(filename=filename, file=BytesIO(pdf_bytes), content_type="application/pdf")
 
 @router.post("/autentique", status_code=status.HTTP_200_OK)
@@ -96,31 +83,26 @@ async def autentique_webhook(
         logging.error("Payload do webhook não é um JSON válido.")
         raise HTTPException(status_code=400, detail="Payload inválido.")
 
-    # Validação da assinatura HMAC
     if not verificar_assinatura_hmac(raw_body, x_autentique_signature or "", AUTENTIQUE_ENDPOINT_SECRET):
         logging.warning("Tentativa de acesso ao webhook com assinatura HMAC inválida.")
         raise HTTPException(status_code=401, detail="Unauthorized webhook source.")
 
     logging.info(f"Webhook recebido do Autentique: {payload}")
 
-    # --- Lógica de atualização de status ---
     try:
         event = payload.get("event", {})
         event_type = event.get("type", "")
         data = event.get("data", {})
-        # O id do documento pode estar em diferentes lugares dependendo do tipo de evento
         document_id = data.get("document") or data.get("object", {}).get("document") or data.get("object", {}).get("id")
         if not document_id:
             logging.warning("ID do documento não encontrado no payload.")
             return {"ok": False, "erro": "ID do documento não encontrado."}
 
-        # Busca o documento no banco
         doc = db.query(DocumentoAssinatura).filter_by(documento_id_autentique=document_id).first()
         if not doc:
             logging.warning(f"Documento com id_autentique {document_id} não encontrado no banco.")
             return {"ok": False, "erro": "Documento não encontrado."}
 
-        # Identifica o e-mail do signatário que assinou
         signatario_email = None
         if "user" in data:
             signatario_email = data["user"].get("email")
@@ -135,7 +117,6 @@ async def autentique_webhook(
                     signatario_email = sig.get("email")
                     break
 
-        # Atualiza o status do signatário, se possível
         if signatario_email:
             signatario = db.query(AssinaturaSignatario).filter_by(documento_assinatura_id=doc.id, email=signatario_email).first()
             if signatario and signatario.status_assinatura != "assinado":
@@ -145,14 +126,12 @@ async def autentique_webhook(
         else:
             logging.warning("E-mail do signatário não encontrado no payload.")
 
-        # Verifica se todos os signatários já assinaram
         signatarios = db.query(AssinaturaSignatario).filter_by(documento_assinatura_id=doc.id).all()
         if signatarios and all(s.status_assinatura == "assinado" for s in signatarios):
             if doc.status != "assinado":
                 doc.status = "assinado"
                 db.commit()
                 logging.info(f"Documento {doc.id} atualizado para status 'assinado'.")
-            # Atualiza o processo correspondente para AGUARDANDO_CTE (em maiúsculo)
             if hasattr(doc, "processo_id") and doc.processo_id:
                 processo = db.query(Processo).filter_by(id=doc.processo_id).first()
                 if processo and processo.status != "AGUARDANDO_CTE":
@@ -160,28 +139,26 @@ async def autentique_webhook(
                     db.commit()
                     logging.info(f"Processo {processo.id} atualizado para status 'AGUARDANDO_CTE'.")
 
-            # --- NOVA LÓGICA: Buscar PDF assinado e fazer upload para Cloudinary com retry ---
             try:
                 if not AUTENTIQUE_TOKEN:
                     logging.error("AUTENTIQUE_TOKEN não está definida nas variáveis de ambiente.")
                     raise Exception("AUTENTIQUE_TOKEN não configurado.")
 
-                # Retry para buscar o arquivo assinado
                 signed_url = None
                 doc_autentique = None
                 for tentativa in range(3):
-                    doc_autentique = await buscar_documento_autentique_por_id(doc.documento_id_autentique, AUTENTIQUE_TOKEN)
+                    data_autentique, status_code = await buscar_documento_autentique_por_id(doc.documento_id_autentique, AUTENTIQUE_TOKEN)
+                    logging.info(f"Tentativa {tentativa+1}: Status HTTP={status_code}, Resposta Autentique={json.dumps(data_autentique)}")
+                    doc_autentique = data_autentique.get("data", {}).get("document") if data_autentique else None
                     if doc_autentique and doc_autentique.get("files") and doc_autentique["files"].get("signed"):
                         signed_url = doc_autentique["files"]["signed"]
                         break
-                    logging.info(f"Tentativa {tentativa+1}: Arquivo assinado ainda não disponível. Aguardando 3 segundos...")
                     await asyncio.sleep(3)
 
                 if signed_url:
                     pdf_bytes = await baixar_pdf_assinado(signed_url, AUTENTIQUE_TOKEN)
                     filename = f"{doc_autentique['name']}.pdf"
                     upload_file = criar_uploadfile_from_bytes(pdf_bytes, filename)
-                    # Upload para Cloudinary na etapa 'contratos'
                     upload_result = await upload_pdf_to_cloudinary(
                         etapa="contratos",
                         file=upload_file,
@@ -194,7 +171,6 @@ async def autentique_webhook(
                     logging.warning("Arquivo assinado não encontrado no Autentique para upload após múltiplas tentativas.")
             except Exception as e:
                 logging.exception(f"Erro ao buscar/upload PDF assinado do Autentique: {str(e)}")
-                # Não impede o retorno OK do webhook, mas loga para análise
 
         return {"ok": True}
     except Exception as e:

@@ -139,13 +139,21 @@ async def processar_documento_autentique(payload: DocumentoAutentiqueInput, db: 
     db.add(documento_assinatura)
     db.flush()  # Para obter o ID do documento_assinatura
 
+    # --- FILTRO ROBUSTO DE SIGNATÁRIOS ---
+    # Monta o set de pares (email, nome) enviados na requisição
+    pares_enviados = set((s.email, s.name) for s in payload.signers)
+
     signer_outputs = []
     for sig in signatures:
         public_id = sig["public_id"]
-        name = sig.get("name")
+        name = sig.get("name") or ""
         email = sig.get("email")
+        if (email, name) not in pares_enviados:
+            # Ignora signatários extras (ex: usuário da conta)
+            continue
+
         # Só gera link para quem tem nome preenchido
-        if name and name.strip():
+        if name.strip():
             create_link_mutation = f"""
             mutation{{
               createLinkToSignature(public_id: "{public_id}"){{
@@ -179,7 +187,7 @@ async def processar_documento_autentique(payload: DocumentoAutentiqueInput, db: 
 
         signer_outputs.append(SignerOutput(
             public_id=public_id,
-            name=name or "",
+            name=name,
             email=email,
             link_assinatura=short_link
         ))

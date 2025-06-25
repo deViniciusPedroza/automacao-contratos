@@ -32,7 +32,7 @@ def verificar_assinatura_hmac(raw_body: bytes, signature: str, secret: str) -> b
 
 async def buscar_documento_autentique_por_id(document_id: str, token: str):
     query = """
-    query ($id: ID!) {
+    query ($id: UUID!) {
       document(id: $id) {
         id
         name

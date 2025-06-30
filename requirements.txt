@@ -7,3 +7,4 @@ python-dotenv
 cloudinary
 python-dotenv
 aiohttp
+PyPDF2

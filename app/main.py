@@ -7,6 +7,7 @@ from app.routers import processo
 from app.routers import autentique
 from app.routers import sincronizacao
 from app.routers import webhook
+from app.routers import agrupamento
 # importação dos modelos
 from app.models.processo import Processo
 from app.models.arquivo import Arquivo
@@ -16,6 +17,7 @@ from app.models.documento_assinatura import DocumentoAssinatura
 app = FastAPI()
 
 app.include_router(upload.router)
+app.include_router(agrupamento.router)
 app.include_router(cloudinary_file_router.router)
 app.include_router(processo.router)
 app.include_router(autentique.router)

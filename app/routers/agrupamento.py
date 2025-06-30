@@ -104,7 +104,7 @@ async def agrupar_e_upload(
         arquivo_agrupado.tipo = TipoArquivo.FINAL  # ou TipoArquivo.AGRUPADO se existir
         db.commit()
 
-    # Remove arquivos INDIVIDUAL do Cloudinary (mas não do banco)
+    # Remove arquivos INDIVIDUAL do Cloudinary e do banco
     arquivos_individuais = db.query(Arquivo).filter(
         Arquivo.processo_id == processo_id,
         Arquivo.tipo == TipoArquivo.INDIVIDUAL
@@ -112,7 +112,7 @@ async def agrupar_e_upload(
     removidos = []
     for arq in arquivos_individuais:
         try:
-            delete_file_by_public_id(arq.public_id, db=None)  # Não remove do banco!
+            delete_file_by_public_id(arq.public_id, db)  # Agora passa o db correto!
             removidos.append(arq.public_id)
         except Exception as e:
             removidos.append(f"Erro ao remover {arq.public_id}: {str(e)}")
